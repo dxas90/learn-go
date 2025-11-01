@@ -74,7 +74,7 @@ jobs:
         run: go clean -cache -testcache
 
       - name: Run tests with coverage
-        run: GOTOOLCHAIN=go${{ matrix.go-version }}+auto go test ./... -v -coverprofile=coverage.out -covermode=atomic
+        run: GOTOOLCHAIN=go1.24.0+auto go test ./... -v -coverprofile=coverage.out -covermode=atomic
 
       - name: Generate coverage report
         run: go tool cover -func=coverage.out
