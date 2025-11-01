@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.23.x', '1.24.x', '1.25.x']
+        go-version: ['1.24.x', '1.25.x']
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -74,7 +74,7 @@ jobs:
         run: go clean -cache -testcache
 
       - name: Run tests with coverage
-        run: go test ./... -v -coverprofile=coverage.out -covermode=atomic
+        run: GOTOOLCHAIN=go${{ matrix.go-version }}+auto go test ./... -v -coverprofile=coverage.out -covermode=atomic
 
       - name: Generate coverage report
         run: go tool cover -func=coverage.out
