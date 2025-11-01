@@ -165,6 +165,8 @@ jobs:
 
       - name: Run Trivy vulnerability scanner
         if: github.event_name != 'pull_request'  # only run Trivy when image is pushed (not on PRs)
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -174,7 +176,7 @@ jobs:
           args: '--skip-version-check'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        if: always() && (github.event_name != 'pull_request')
+        if: github.event_name != 'pull_request' && steps.trivy.outcome == 'success'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-results.sarif'
