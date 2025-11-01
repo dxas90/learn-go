@@ -1,0 +1,22 @@
+# Learn-Go Application Configuration
+app:
+  name: learn-go
+  version: 0.0.1
+  description: A simple Go microservice for learning Kubernetes, Docker, and modern Go development practices
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  read_timeout: 15s
+  write_timeout: 15s
+  idle_timeout: 60s
+
+cors:
+  enabled: true
+  origin: "*"
+
+logging:
+  level: info
+  format: json
+
+environment: development

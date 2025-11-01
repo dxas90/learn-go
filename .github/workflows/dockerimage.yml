@@ -1,0 +1,288 @@
+name: Docker Build and Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  GO_VERSION: '1.25'
+
+jobs:
+  lint:
+    name: Code Quality & Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install linters
+        run: |
+          go install golang.org/x/lint/golint@latest
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Run go fmt
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "Code is not formatted:"
+            gofmt -s -l .
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run golint
+        run: golint -set_exit_status ./...
+
+      - name: Run staticcheck
+        run: staticcheck ./...
+
+      - name: Verify dependencies
+        run: go mod verify
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.20', '1.25', '1.22']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests with coverage
+        run: go test ./... -v -coverprofile=coverage.out -covermode=atomic
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage.out
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-go-${{ matrix.go-version }}
+
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Run gosec security scanner
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -fmt=json -out=gosec-results.json ./... || true
+
+  build:
+    name: Build and Scan Docker Image
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://staging.learn-go.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Kind Cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: staging-cluster
+          kubectl_version: v1.28.4
+
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          kubectl cluster-info
+          kubectl get nodes
+
+          # Create namespace
+          kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+
+          # Deploy application
+          cat <<EOF | kubectl apply -n staging -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: learn-go
+            labels:
+              app: learn-go
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: learn-go
+            template:
+              metadata:
+                labels:
+                  app: learn-go
+              spec:
+                containers:
+                - name: learn-go
+                  image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+                  ports:
+                  - containerPort: 8080
+                  env:
+                  - name: PORT
+                    value: "8080"
+                  - name: HOST
+                    value: "0.0.0.0"
+                  - name: GO_ENV
+                    value: "staging"
+                  - name: APP_VERSION
+                    value: "${{ github.sha }}"
+                  livenessProbe:
+                    httpGet:
+                      path: /ping
+                      port: 8080
+                    initialDelaySeconds: 3
+                    periodSeconds: 10
+                  readinessProbe:
+                    httpGet:
+                      path: /healthz
+                      port: 8080
+                    initialDelaySeconds: 5
+                    periodSeconds: 5
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: learn-go
+          spec:
+            selector:
+              app: learn-go
+            ports:
+            - protocol: TCP
+              port: 80
+              targetPort: 8080
+            type: LoadBalancer
+          EOF
+
+          # Wait for deployment
+          kubectl wait --for=condition=available --timeout=300s deployment/learn-go -n staging
+          kubectl get pods -n staging -o wide
+          kubectl get services -n staging
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/')
+    environment:
+      name: production
+      url: https://learn-go.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          echo "Version: ${{ github.ref_name }}"
+          # Add your production deployment commands here
+          # Example:
+          # kubectl config use-context production
+          # kubectl apply -f k8s/production/

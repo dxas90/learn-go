@@ -1,0 +1,224 @@
+name: Kubernetes Deployment Pipeline
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  APP_NAME: learn-go
+  CLUSTER_NAME: test-cluster
+
+jobs:
+  validate-k8s:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubeval
+        run: |
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin
+
+      - name: Validate Kubernetes manifests
+        run: |
+          if [ -d "k8s" ]; then
+            kubeval k8s/*.yaml
+          else
+            echo "No k8s directory found, skipping validation..."
+          fi
+
+  test-deployment:
+    name: Test Kubernetes Deployment
+    runs-on: ubuntu-latest
+    needs: validate-k8s
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Kind Cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          kubectl_version: v1.28.4
+          verbosity: 1
+
+      - name: Load Docker image into Kind
+        run: |
+          # Build the image
+          docker build -t ${{ env.APP_NAME }}:test .
+          # Load image into Kind cluster
+          kind load docker-image ${{ env.APP_NAME }}:test --name ${{ env.CLUSTER_NAME }}
+
+      - name: Wait for cluster to be ready
+        run: |
+          echo "Waiting for nodes to be ready..."
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          echo "Cluster is ready!"
+
+      - name: Display cluster information
+        run: |
+          echo "=== Cluster Info ==="
+          kubectl cluster-info
+          echo "=== Nodes ==="
+          kubectl get nodes -o wide
+          echo "=== Pods (all namespaces) ==="
+          kubectl get pods --all-namespaces -o wide
+          echo "=== Services (all namespaces) ==="
+          kubectl get services --all-namespaces -o wide
+
+      - name: Create basic Kubernetes manifests if not exist
+        run: |
+          if [ ! -f "k8s/deployment.yaml" ]; then
+            mkdir -p k8s
+            cat > k8s/deployment.yaml << 'EOF'
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: learn-go
+            labels:
+              app: learn-go
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: learn-go
+            template:
+              metadata:
+                labels:
+                  app: learn-go
+              spec:
+                containers:
+                - name: learn-go
+                  image: learn-go:test
+                  imagePullPolicy: Never
+                  ports:
+                  - containerPort: 8080
+                  env:
+                  - name: GO_ENV
+                    value: "production"
+                  - name: PORT
+                    value: "8080"
+                  - name: HOST
+                    value: "0.0.0.0"
+                  livenessProbe:
+                    httpGet:
+                      path: /ping
+                      port: 8080
+                    initialDelaySeconds: 10
+                    periodSeconds: 30
+                  readinessProbe:
+                    httpGet:
+                      path: /healthz
+                      port: 8080
+                    initialDelaySeconds: 5
+                    periodSeconds: 10
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: learn-go-service
+            labels:
+              app: learn-go
+          spec:
+            type: ClusterIP
+            ports:
+            - port: 80
+              targetPort: 8080
+              protocol: TCP
+            selector:
+              app: learn-go
+          EOF
+          fi
+
+      - name: Deploy application to Kind cluster
+        run: |
+          echo "Deploying application..."
+          kubectl apply -f k8s/deployment.yaml
+
+          echo "Waiting for deployment to be ready..."
+          kubectl wait --for=condition=available --timeout=300s deployment/learn-go
+
+          echo "=== Deployment Status ==="
+          kubectl get deployments
+          kubectl get pods -l app=learn-go
+          kubectl get services
+
+      - name: Test application endpoints
+        run: |
+          echo "Testing application endpoints..."
+
+          # Port forward to access the service
+          kubectl port-forward service/learn-go-service 8080:80 &
+          sleep 10
+
+          # Test health endpoint
+          echo "Testing /healthz endpoint..."
+          curl -f http://localhost:8080/healthz || exit 1
+
+          # Test ping endpoint
+          echo "Testing /ping endpoint..."
+          curl -f http://localhost:8080/ping || exit 1
+
+          # Test main endpoint
+          echo "Testing / endpoint..."
+          curl -f http://localhost:8080/ || exit 1
+
+          echo "All endpoints are working correctly!"
+
+      - name: Show application logs
+        if: always()
+        run: |
+          echo "=== Application Logs ==="
+          kubectl logs -l app=learn-go --tail=50
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "Cleaning up resources..."
+          kubectl delete -f k8s/deployment.yaml --ignore-not-found=true
+
+  deploy-staging:
+    name: Deploy to Staging Environment
+    runs-on: ubuntu-latest
+    needs: test-deployment
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://staging.learn-node.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: |
+          echo "This would deploy to your staging Kubernetes cluster"
+          # Add your staging deployment commands here
+          # Example:
+          # kubectl apply -f k8s/ --context=staging-cluster
+
+  deploy-production:
+    name: Deploy to Production Environment
+    runs-on: ubuntu-latest
+    needs: test-deployment
+    if: startsWith(github.ref, 'refs/tags/')
+    environment:
+      name: production
+      url: https://learn-node.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        run: |
+          echo "This would deploy to your production Kubernetes cluster"
+          # Add your production deployment commands here
+          # Example:
+          # kubectl apply -f k8s/ --context=production-cluster

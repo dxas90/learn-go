@@ -1,0 +1,283 @@
+# GitLab CI/CD Pipeline for Learn Go Microservice
+# Updated with modern practices and comprehensive testing
+
+variables:
+  # Docker configuration
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_BUILDKIT: 1
+
+  # Kubernetes tools versions
+  KUBECTL_VERSION: "v1.28.4"
+  KIND_VERSION: "v0.20.0"
+  HELM_VERSION: "v3.13.0"
+
+  # Application configuration
+  APP_NAME: "learn-go"
+  DOCKER_REGISTRY: "docker.io"
+  DOCKER_REPO: "dxas90"
+
+  # Go configuration
+  GO_VERSION: "1.25"
+  GOPATH: "$CI_PROJECT_DIR/.go"
+
+  # Security scanning
+  TRIVY_VERSION: "0.47.0"
+
+# Use a modern base image with necessary tools
+image: alpine/k8s:1.34.1
+
+stages:
+  - lint
+  - test
+  - security
+  - build
+  - deploy-staging
+  - deploy-production
+  - cleanup
+
+# Global before_script for common setup
+before_script:
+  - apk add --no-cache curl wget git
+  - echo "Starting CI/CD pipeline for commit $CI_COMMIT_SHA"
+
+# Code quality and linting
+lint:
+  stage: lint
+  image: golang:1.25-alpine
+  before_script:
+    - apk add --no-cache git make
+    - go install golang.org/x/lint/golint@latest
+    - go install honnef.co/go/tools/cmd/staticcheck@latest
+  script:
+    - go fmt ./...
+    - go vet ./...
+    - golint ./...
+    - staticcheck ./...
+    - go mod verify
+  only:
+    - merge_requests
+    - main
+    - develop
+
+# Unit and integration tests
+test:
+  stage: test
+  image: golang:1.25-alpine
+  before_script:
+    - apk add --no-cache git make gcc musl-dev
+    - go mod download
+  script:
+    # Run tests with coverage
+    - go test ./... -v -coverprofile=coverage.out -covermode=atomic
+    - go tool cover -func=coverage.out
+
+    # Build the application
+    - go build -o bin/learn-go ./cmd/api
+
+    # Start server in background for health checks
+    - PORT=8080 HOST=127.0.0.1 APP_VERSION=test ./bin/learn-go &
+    - sleep 3
+
+    # Health check
+    - apk add --no-cache curl
+    - curl -f http://127.0.0.1:8080/ping || exit 1
+    - curl -f http://127.0.0.1:8080/healthz || exit 1
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    paths:
+      - coverage.out
+      - bin/
+    expire_in: 1 week
+  only:
+    - merge_requests
+    - main
+    - develop
+
+# Security scanning
+security-scan:
+  stage: security
+  image: aquasec/trivy:latest
+  services:
+    - docker:28-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker build -t $APP_NAME:$CI_COMMIT_SHA .
+  script:
+    # Scan filesystem
+    - trivy fs --exit-code 0 --format template --template "@contrib/gitlab.tpl" -o gl-dependency-scanning-report.json .
+
+    # Scan Docker image
+    - trivy image --exit-code 0 --format template --template "@contrib/gitlab.tpl" -o gl-container-scanning-report.json $APP_NAME:$CI_COMMIT_SHA
+
+    # Fail on HIGH and CRITICAL vulnerabilities
+    - trivy image --exit-code 1 --severity HIGH,CRITICAL $APP_NAME:$CI_COMMIT_SHA
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+      container_scanning: gl-container-scanning-report.json
+    expire_in: 1 week
+  only:
+    - merge_requests
+    - main
+    - develop
+
+# Build and push Docker image
+build:
+  stage: build
+  image: docker:28
+  services:
+    - docker:28-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - export VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}
+    - export BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+    - |
+      docker build \
+        --build-arg BUILD_DATE=$BUILD_DATE \
+        --build-arg VCS_REF=$CI_COMMIT_SHA \
+        --build-arg VERSION=$VERSION \
+        -t $CI_REGISTRY_IMAGE:$VERSION \
+        -t $CI_REGISTRY_IMAGE:latest \
+        .
+    - docker push $CI_REGISTRY_IMAGE:$VERSION
+    - docker push $CI_REGISTRY_IMAGE:latest
+  artifacts:
+    reports:
+      dotenv: build.env
+  only:
+    - main
+    - tags
+
+# Deploy to staging environment
+deploy-staging:
+  stage: deploy-staging
+  image: alpine/k8s:1.34.1
+  environment:
+    name: staging
+    url: https://staging.learn-go.example.com
+  before_script:
+    - |
+      # Install kind for local Kubernetes testing
+      curl -Lo ./kind https://kind.sigs.k8s.io/dl/$KIND_VERSION/kind-linux-amd64
+      chmod +x ./kind
+      mv ./kind /usr/local/bin/kind
+    - kind create cluster --name staging
+    - kubectl cluster-info
+  script:
+    - echo "Deploying to staging environment..."
+    - kubectl wait --for=condition=Ready nodes --all --timeout=300s
+    - kubectl get nodes -o wide
+    - |
+      # Create namespace
+      kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+
+      # Create deployment
+      cat <<EOF | kubectl apply -n staging -f -
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: $APP_NAME
+        labels:
+          app: $APP_NAME
+      spec:
+        replicas: 2
+        selector:
+          matchLabels:
+            app: $APP_NAME
+        template:
+          metadata:
+            labels:
+              app: $APP_NAME
+          spec:
+            containers:
+            - name: $APP_NAME
+              image: $CI_REGISTRY_IMAGE:${CI_COMMIT_SHORT_SHA}
+              ports:
+              - containerPort: 8080
+              env:
+              - name: PORT
+                value: "8080"
+              - name: HOST
+                value: "0.0.0.0"
+              - name: GO_ENV
+                value: "staging"
+              - name: APP_VERSION
+                value: "${CI_COMMIT_SHORT_SHA}"
+              livenessProbe:
+                httpGet:
+                  path: /ping
+                  port: 8080
+                initialDelaySeconds: 3
+                periodSeconds: 10
+              readinessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 8080
+                initialDelaySeconds: 5
+                periodSeconds: 5
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: $APP_NAME
+      spec:
+        selector:
+          app: $APP_NAME
+        ports:
+        - protocol: TCP
+          port: 80
+          targetPort: 8080
+        type: LoadBalancer
+      EOF
+
+      # Wait for deployment
+      kubectl wait --for=condition=available --timeout=300s deployment/$APP_NAME -n staging
+    - kubectl get pods -n staging -o wide
+    - kubectl get services -n staging -o wide
+  after_script:
+    - kind delete cluster --name staging || true
+  only:
+    - main
+  when: manual
+
+# Deploy to production
+deploy-production:
+  stage: deploy-production
+  image: alpine/k8s:1.34.1
+  environment:
+    name: production
+    url: https://learn-go.example.com
+  before_script:
+    - echo "Setting up production deployment..."
+  script:
+    - echo "Deploying to production environment..."
+    - echo "This would deploy to your actual Kubernetes cluster"
+    # Add your production deployment scripts here
+    # Example:
+    # - kubectl config use-context production
+    # - kubectl apply -f k8s/production/
+  only:
+    - tags
+  when: manual
+
+# Cleanup job that always runs
+cleanup:
+  stage: cleanup
+  image: alpine/k8s:1.34.1
+  script:
+    - echo "Cleaning up resources..."
+    - docker system prune -f || true
+    - kind delete cluster --name staging || true
+  when: always
+  allow_failure: true
