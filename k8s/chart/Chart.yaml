@@ -1,0 +1,8 @@
+apiVersion: v2
+name: "learn-go-api"
+description: "Helm chart for learn-go API"
+type: application
+version: "0.1.0" # {"$imagepolicy": "learn-go:learn-go-api-policy:tag"}
+appVersion: "0.1.0" # {"$imagepolicy": "learn-go:learn-go-api-policy:tag"}
+maintainers:
+  - name: "Daniel Ramirez <dxas90@gmail.com>"

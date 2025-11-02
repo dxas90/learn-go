@@ -1,0 +1,118 @@
+---
+# yaml-language-server: $schema=https://homelab-schemas-epg.pages.dev/source.toolkit.fluxcd.io/gitrepository_v1.json
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: learn-go-api
+  namespace: flux-system
+spec:
+  interval: 30m
+  url: https://github.com/dxas90/learn-go.git
+  secretRef:
+    name: flux-git-deploy-key
+  ref:
+    branch: main
+  ignore: |
+    # exclude
+    /*
+    # include
+    !k8s/
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: learn-go-api
+  namespace: learn-go
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: ./k8s/chart
+      sourceRef:
+        kind: GitRepository
+        name: learn-go-api
+        namespace: flux-system
+  maxHistory: 2
+  install:
+    createNamespace: true
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values: # https://github.com/external-secrets/external-secrets/blob/main/deploy/charts/external-secrets/values.yaml
+    image:
+    repository: "ghcr.io/dxas90/learn-go"
+    pullPolicy: "IfNotPresent"
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/imagerepository-image-v1.json
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: learn-go-api-imagerepository
+  namespace: learn-go
+spec:
+  image: ghcr.io/dxas90/learn-go
+  interval: 5m
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/imagepolicy-image-v1.json
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: learn-go-api-policy
+  namespace: learn-go
+spec:
+  imageRepositoryRef:
+    name: learn-go-api-imagerepository
+  policy:
+    semver:
+      range: 0.1.x
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/imageupdateautomation-image-v1.json
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageUpdateAutomation
+metadata:
+  name: learn-go-api-update
+  namespace: learn-go
+spec:
+  interval: 1m0s
+  sourceRef:
+    kind: GitRepository
+    name: learn-go-api
+    namespace: flux-system
+  git:
+    checkout:
+      ref:
+        branch: main
+      strategy: pull-request
+    commit:
+      author:
+        email: fluxcdbot@users.noreply.github.com
+        name: fluxcdbot
+        messageTemplate: |
+          Automated image update
+
+          Automation name: {{ .AutomationObject }}
+
+          Files:
+          {{ range $filename, $_ := .Changed.FileChanges -}}
+          - {{ $filename }}
+          {{ end -}}
+
+          Objects:
+          {{ range $resource, $changes := .Changed.Objects -}}
+          - {{ $resource.Kind }} {{ $resource.Name }}
+            Changes:
+          {{- range $_, $change := $changes }}
+              - {{ $change.OldValue }} -> {{ $change.NewValue }}
+          {{ end -}}
+          {{ end -}}
+    push:
+      branch: flux-image-updates
+      refspec: refs/heads/flux-image-updates:refs/heads/flux-image-updates
+  update:
+    path: ./

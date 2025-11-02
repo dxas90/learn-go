@@ -1,0 +1,86 @@
+replicaCount: 1
+image:
+  repository: "ghcr.io/dxas90/learn-go"
+  pullPolicy: "Always"
+  tag: "latest"
+service:
+  type: "ClusterIP"
+  port: 3000
+  annotations:
+    traefik.io/service.nativelb: "true"
+namespace: "default"
+httproute:
+  enabled: false
+  gatewayName: "traefik-gateway"
+  gatewayNamespace: "networking"
+  sectionName: "websecure"
+  annotations:
+    networking.x-k8s.io/route-shard: "futurmille"
+    cert-manager.io/cluster-issuer: "letsencrypt-production"
+    external-dns.alpha.kubernetes.io/target: "enter.example.com"
+  labels:
+    use-cloudflare-solver: "true"
+  hostnames:
+    - "api-learn-go.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - port: 8080
+persistence:
+  enabled: false
+  capacity: "200Mi"
+  mountPath: "/data"
+autoscaling:
+  enabled: True
+  minReplicas: 1
+  maxReplicas: 10
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 128Mi
+chart:
+  label: "futurmille"
+# Environment configuration
+env:
+  # Environment variables from file will be loaded here during chart generation
+  # if env_file_path is provided in cookiecutter.json
+  variables: {}
+# Common secret and settings references
+common:
+  secrets:
+    enabled: false
+    name: "common-secrets"
+  settings:
+    enabled: false
+    name: "common-settings"
+# Other values from the original chart are intentionally left as defaults.
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+podSecurityContext:
+  fsGroup: 65534
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  runAsUser: 1000
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 4
+  failureThreshold: 5
+readinessProbe:
+  tcpSocket:
+    port: 3000
+  initialDelaySeconds: 10
+  periodSeconds: 15
