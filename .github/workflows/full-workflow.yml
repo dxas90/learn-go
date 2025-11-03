@@ -242,7 +242,6 @@ jobs:
         uses: helm/kind-action@v1
         with:
           cluster_name: ${{ env.CLUSTER_NAME }}
-          kubectl_version: v1.34
           verbosity: 1
           config: .github/kind-config.yaml
 
