@@ -5,7 +5,7 @@ image:
   tag: "latest"
 service:
   type: "ClusterIP"
-  port: 3000
+  port: 8080  # Service listens on 8080
   annotations:
     traefik.io/service.nativelb: "true"
 namespace: "default"
@@ -78,11 +78,13 @@ livenessProbe:
   httpGet:
     path: /healthz
     port: http
-  initialDelaySeconds: 5
-  periodSeconds: 4
-  failureThreshold: 5
-readinessProbe:
-  tcpSocket:
-    port: 3000
   initialDelaySeconds: 10
-  periodSeconds: 15
+  periodSeconds: 10
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 3

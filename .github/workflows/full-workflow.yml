@@ -307,6 +307,7 @@ jobs:
             --set image.tag=test \
             --set image.pullPolicy=Never \
             --set replicaCount=2 \
+            --set autoscaling.enabled=false \
             --set httproute.enabled=false \
             --wait \
             --timeout 5m \
