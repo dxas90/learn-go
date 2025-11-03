@@ -95,14 +95,31 @@ jobs:
   test:
     - run: go test ./...
 
-  # 2. Local integration tests (NEW)
-  integration-test:
-    needs: test
-    - run: ./scripts/integration-test.sh
-
-  # 3. Build Docker image
+  # 2. Docker image is built
   build:
-    needs: [lint, test, integration-test]
+    needs: [lint, test]
+    - docker build with load: true
+    - export to tar artifact
+
+  # 3. Kubernetes deployment tests in Kind cluster
+  test-deployment:
+    needs: [build, helm-test]
+    steps:
+      # Load image into Kind
+      # Deploy with Helm
+      # Run smoke test (RUNS HERE - requires deployed app)
+      - run: ./scripts/smoke-test.sh
+      # Run comprehensive E2E tests (RUNS HERE - requires deployed app)
+      - run: ./scripts/e2e-test.sh
+      # Health verification
+```
+
+**IMPORTANT**:
+
+- ✅ `smoke-test.sh` and `e2e-test.sh` run in CI **AFTER** Helm deployment in Kind cluster
+- ✅ `integration-test.sh` is for **LOCAL DEVELOPMENT ONLY** (not in CI pipeline)
+- ❌ Do NOT run `smoke-test.sh` or `e2e-test.sh` locally unless you have a Kind cluster with the app deployed
+
     - docker build...
 
   # 4. Kubernetes deployment tests

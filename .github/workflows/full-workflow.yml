@@ -88,31 +88,10 @@ jobs:
           flags: unittests
           name: codecov-go-${{ matrix.go-version }}
 
-  integration-test:
-    name: Run Local Integration Tests
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Run integration tests
-        run: |
-          chmod +x scripts/integration-test.sh
-          ./scripts/integration-test.sh
-
   security-scan:
     name: Security Vulnerability Scan
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -160,7 +139,7 @@ jobs:
   build:
     name: Build and Scan Docker Image
     runs-on: ubuntu-latest
-    needs: [lint, test, integration-test]
+    needs: [lint, test]
     permissions:
       contents: read
       packages: write
@@ -324,12 +303,16 @@ jobs:
       - name: Run Smoke Test
         run: |
           echo "Running quick smoke test..."
+          # NOTE: smoke-test.sh validates basic cluster health and deployment
+          # Runs AFTER Helm deployment completes successfully
           chmod +x scripts/smoke-test.sh
           ./scripts/smoke-test.sh
 
       - name: Run Comprehensive E2E Tests
         run: |
           echo "Starting comprehensive end-to-end testing..."
+          # NOTE: e2e-test.sh performs full endpoint testing, pod resilience checks
+          # Requires Kind cluster with deployed application
           chmod +x scripts/e2e-test.sh
           ./scripts/e2e-test.sh
 

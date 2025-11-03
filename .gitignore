@@ -87,6 +87,7 @@ config/local.yml
 
 # Un-ignore pkg directory if it's being ignored
 !pkg/
+!scripts/
 
 flux-git-deploy-key
 flux-git-deploy-key.pub

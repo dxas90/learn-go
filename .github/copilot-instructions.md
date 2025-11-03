@@ -41,10 +41,10 @@ curl -X POST -H "Content-Type: application/json" -d '{"message":"test"}' http://
 GO_ENV=test go test ./...
 go test ./internal/handlers -v  # Test specific package
 
-# 2. Integration tests (local + Docker) - runs before Docker build in CI
-./scripts/integration-test.sh    # Auto-detects local vs k8s environment
+# 2. Integration tests (LOCAL DEVELOPMENT ONLY - not in CI)
+./scripts/integration-test.sh    # Tests local Go app (Docker tests optional)
 
-# 3. E2E tests (Kubernetes) - runs in Kind cluster after deployment
+# 3. E2E tests (KUBERNETES ONLY - runs in CI after Kind deployment)
 ./scripts/smoke-test.sh          # Quick validation (cluster health, basic endpoint)
 ./scripts/e2e-test.sh            # Comprehensive (all endpoints, pod resilience, probes)
 
@@ -54,29 +54,34 @@ go tool cover -html=coverage.out -o coverage.html
 ```
 
 ### CI/CD Workflow (Unified full-workflow.yml)
-**Single pipeline replaces old dockerimage.yml + k8s-deployment.yml + trigger-flux.yaml**
+**Single pipeline - streamlined for efficiency**
 
 ```
-lint → test (matrix: 1.24.x, 1.25.x) → integration-test → build → helm-test
-                                                              ↓
-                                                       test-deployment (Kind)
-                                                              ├─ smoke-test.sh
-                                                              ├─ e2e-test.sh
-                                                              └─ health checks
-                                                              ↓
-                                          ┌─────────────────────────────────┐
-                                          ↓                                 ↓
-                                  deploy-staging                  deploy-production
-                                  (main branch)                   (tags only)
-                                  FluxCD webhook                  FluxCD webhook
+lint → test (matrix: 1.24.x, 1.25.x) → build → helm-test
+                ↓                        ↓
+         security-scan              (artifact)
+                                        ↓
+                                 test-deployment (Kind)
+                                        ├─ Load image into Kind
+                                        ├─ Helm deploy
+                                        ├─ smoke-test.sh ← RUNS HERE
+                                        ├─ e2e-test.sh ← RUNS HERE
+                                        └─ health checks
+                                        ↓
+                     ┌─────────────────────────────────┐
+                     ↓                                 ↓
+             deploy-staging                  deploy-production
+             (main branch)                   (tags only)
+             FluxCD webhook                  FluxCD webhook
 ```
 
 **Key Implementation Details:**
 - Docker build: Single-platform (amd64) with `load: true` for ALL branches/PRs
 - Artifact sharing: Image exported to tar → uploaded → downloaded by test-deployment
 - Kind cluster: Uses `.github/kind-config.yaml` with port mappings (80, 443)
-- Helm deployment: `--set image.pullPolicy=Never` for Kind (uses loaded image)
-- Test scripts: Run in Kind cluster using curl pods for in-cluster endpoint testing
+- Helm deployment: `--set image.pullPolicy=Never --set autoscaling.enabled=false` for Kind
+- **Test execution order**: Helm deploy → smoke-test.sh → e2e-test.sh → health checks
+- **integration-test.sh**: LOCAL ONLY (not in CI due to Docker config issues)
 
 ## Project-Specific Conventions
 
@@ -183,11 +188,11 @@ EXPOSE 8080  # Container listens on 8080 (regardless of PORT env var)
 make dev                           # Start server (port 8080)
 GO_ENV=test go test ./... -v      # Run all tests with output
 
+# Local integration testing (Docker + Go app)
+./scripts/integration-test.sh     # Tests local Go app + Docker build
+
 # Docker local testing
 docker build -t learn-go . && docker run -p 8080:8080 learn-go
-
-# Integration testing (auto-detects env)
-./scripts/integration-test.sh     # Local: tests Go + Docker | K8s: tests cluster
 
 # Makefile targets
 make help                          # Show all available targets
