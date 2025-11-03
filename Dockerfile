@@ -21,6 +21,6 @@ LABEL org.opencontainers.image.authors="Daniel Ramirez <dxas90@gmail.com>" \
     org.opencontainers.image.title="learn Image" \
     org.opencontainers.image.version="1.0.0"
 COPY --from=builder /build/main /app/
-WORKDIR /app
 EXPOSE 8080
+WORKDIR /app
 ENTRYPOINT [ "/app/main" ]
