@@ -145,10 +145,15 @@ func TestXxx(t *testing.T) {
 - **gopsutil/v3** v3.24.x: System metrics for `/healthz` (CPU%, memory, goroutines)
 
 ### Kubernetes/Helm Chart (k8s/chart/)
-- **Default config**: 1 replica, ClusterIP service on port 3000
-- **Probes**: `readinessProbe` & `livenessProbe` hit `/healthz` (initialDelaySeconds: 10)
+- **Chart name**: `learn-go-api` (defined in Chart.yaml)
+- **Release name**: `learn-go` (used in CI deployment)
+- **Resource naming**: Helm creates resources as `{release}-{chart}` = `learn-go-learn-go-api`
+- **Deployment**: Full name is `learn-go-learn-go-api`
+- **Service**: Full name is `learn-go-learn-go-api`, port 8080
+- **Pod labels**: `app.kubernetes.io/name=learn-go-api` (chart name only, NOT full name)
+- **Default config**: 2 replicas, ClusterIP service on port 8080
+- **Probes**: `readinessProbe` & `livenessProbe` hit `/healthz` (initialDelaySeconds: 5/10)
 - **HTTPRoute**: Optional Gateway API routing (disabled by default)
-- **Deployment**: Uses `app.kubernetes.io/name=learn-go` label (NOT `app=learn-go`)
 
 ### Docker Build (Dockerfile)
 ```dockerfile
@@ -169,8 +174,9 @@ EXPOSE 8080  # Container listens on 8080 (regardless of PORT env var)
 3. **Middleware order**: Logging MUST be first to capture CORS preflight responses
 4. **Docker FROM scratch**: Binary must be static (`CGO_ENABLED=0`) - no libc or shell available
 5. **Kind testing**: Image loaded with `--set image.pullPolicy=Never` - doesn't pull from registry
-6. **Pod labels**: Use `app.kubernetes.io/name=learn-go` NOT `app=learn-go` in kubectl selectors
-7. **Workflow artifact**: Image built ONCE, shared via tar - don't rebuild in test-deployment job
+6. **Helm naming**: Chart creates `learn-go-learn-go-api` resources (release + chart name)
+7. **Pod labels**: Use `app.kubernetes.io/name=learn-go-api` (chart name) in kubectl selectors
+8. **Workflow artifact**: Image built ONCE, shared via tar - don't rebuild in test-deployment job
 
 ## Quick Reference: Key Files & Commands
 
@@ -207,11 +213,15 @@ kind get clusters
 # Load image manually
 kind load docker-image learn-go:test --name test-cluster
 
-# Check pods in Kind
-kubectl get pods -l app.kubernetes.io/name=learn-go
-kubectl logs -l app.kubernetes.io/name=learn-go
+# Check pods in Kind (use correct label selector)
+kubectl get pods -l app.kubernetes.io/name=learn-go-api
+kubectl logs -l app.kubernetes.io/name=learn-go-api
+
+# Check deployment and service
+kubectl get deployment learn-go-learn-go-api
+kubectl get service learn-go-learn-go-api
 
 # Port-forward for local testing
-kubectl port-forward service/learn-go 8080:3000
+kubectl port-forward service/learn-go-learn-go-api 8080:8080
 ```
 ````

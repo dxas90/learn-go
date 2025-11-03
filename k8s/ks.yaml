@@ -116,3 +116,4 @@ spec:
       refspec: refs/heads/flux-image-updates:refs/heads/flux-image-updates
   update:
     path: ./
+    strategy: Setters

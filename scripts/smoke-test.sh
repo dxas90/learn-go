@@ -44,13 +44,14 @@ check_cluster_health() {
 check_deployment() {
     log_info "Checking deployment status..."
 
-    if ! kubectl get deployment learn-go >/dev/null 2>&1; then
-        log_error "learn-go deployment not found"
+    # Helm creates deployment with format: {release}-{chart}
+    if ! kubectl get deployment learn-go-learn-go-api >/dev/null 2>&1; then
+        log_error "learn-go-learn-go-api deployment not found"
         return 1
     fi
 
     # Check if deployment is available
-    if kubectl get deployment learn-go -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' | grep -q "True"; then
+    if kubectl get deployment learn-go-learn-go-api -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' | grep -q "True"; then
         log_success "Deployment is available"
     else
         log_error "Deployment is not available"
@@ -62,12 +63,13 @@ check_deployment() {
 check_service() {
     log_info "Checking service status..."
 
-    if ! kubectl get service learn-go >/dev/null 2>&1; then
-        log_error "learn-go service not found"
+    # Helm creates service with format: {release}-{chart}
+    if ! kubectl get service learn-go-learn-go-api >/dev/null 2>&1; then
+        log_error "learn-go-learn-go-api service not found"
         return 1
     fi
 
-    local cluster_ip=$(kubectl get service learn-go -o jsonpath='{.spec.clusterIP}')
+    local cluster_ip=$(kubectl get service learn-go-learn-go-api -o jsonpath='{.spec.clusterIP}')
     if [[ -n "${cluster_ip}" && "${cluster_ip}" != "None" ]]; then
         log_success "Service has cluster IP: ${cluster_ip}"
     else
@@ -81,8 +83,8 @@ quick_endpoint_test() {
     log_info "Running quick endpoint test..."
 
     # Get service cluster IP directly (more reliable than DNS lookup)
-    local service_ip=$(kubectl get service learn-go -o jsonpath='{.spec.clusterIP}')
-    local service_port=$(kubectl get service learn-go -o jsonpath='{.spec.ports[0].port}')
+    local service_ip=$(kubectl get service learn-go-learn-go-api -o jsonpath='{.spec.clusterIP}')
+    local service_port=$(kubectl get service learn-go-learn-go-api -o jsonpath='{.spec.ports[0].port}')
 
     if [[ -z "${service_ip}" || "${service_ip}" == "None" ]]; then
         log_error "Could not get service cluster IP"
