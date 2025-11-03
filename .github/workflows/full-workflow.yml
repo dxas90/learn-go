@@ -1,0 +1,384 @@
+name: Docker Build and Security Scan
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  GO_VERSION: '1.25.x'
+  APP_NAME: learn-go
+  CLUSTER_NAME: test-cluster
+
+jobs:
+  lint:
+    name: Code Quality & Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install linters
+        run: |
+          go install golang.org/x/lint/golint@latest
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Run go fmt
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "Code is not formatted:"
+            gofmt -s -l .
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run golint
+        run: golint -set_exit_status ./...
+
+      - name: Run staticcheck
+        run: staticcheck ./...
+
+      - name: Verify dependencies
+        run: go mod verify
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.24.x', '1.25.x']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Clean build cache
+        run: go clean -cache -testcache
+
+      - name: Run tests with coverage
+        run: GOTOOLCHAIN=go1.24.0+auto go test ./... -v -coverprofile=coverage.out -covermode=atomic
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage.out
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-go-${{ matrix.go-version }}
+
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Run gosec security scanner
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -fmt=json -out=gosec-results.json ./... || true
+
+  helm-test:
+    name: Helm Chart Testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
+
+      - name: Install Helm unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git
+
+      - name: Run Helm unit tests
+        run: helm unittest k8s/chart
+
+      - name: Lint Helm chart
+        run: helm lint k8s/chart
+
+  build:
+    name: Build and Scan Docker Image
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+
+      - name: Export image for Kind testing
+        run: |
+          # Image is already loaded in Docker daemon, just save it
+          docker save -o /tmp/image.tar $(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+
+      - name: Upload Docker image artifact for Kind testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp/image.tar
+          retention-days: 1
+
+      - name: Run Trivy vulnerability scanner
+        if: github.event_name != 'pull_request'  # only run Trivy when image is pushed (not on PRs)
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          # skip version check to avoid failing on newer Trivy versions
+          args: '--skip-version-check'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        if: github.event_name != 'pull_request' && steps.trivy.outcome == 'success'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  test-deployment:
+    name: Test Kubernetes Deployment
+    runs-on: ubuntu-latest
+    needs: [build, helm-test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
+
+      - name: Setup Kind Cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          kubectl_version: v1.28.4
+          verbosity: 1
+
+      - name: Load Docker image into Kind
+        run: |
+          # Load the image from artifact
+          docker load -i /tmp/image.tar
+
+          # Get the image name and tag from the loaded image
+          IMAGE_NAME=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -n 1)
+          echo "Loaded image: $IMAGE_NAME"
+
+          # Tag it for local use
+          docker tag $IMAGE_NAME ${{ env.APP_NAME }}:test
+
+          # Load image into Kind cluster
+          kind load docker-image ${{ env.APP_NAME }}:test --name ${{ env.CLUSTER_NAME }}
+
+      - name: Wait for cluster to be ready
+        run: |
+          echo "Waiting for nodes to be ready..."
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          echo "Cluster is ready!"
+
+      - name: Display cluster information
+        run: |
+          echo "=== Cluster Info ==="
+          kubectl cluster-info
+          echo "=== Nodes ==="
+          kubectl get nodes -o wide
+          echo "=== Pods (all namespaces) ==="
+          kubectl get pods --all-namespaces -o wide
+          echo "=== Services (all namespaces) ==="
+          kubectl get services --all-namespaces -o wide
+
+      - name: Deploy application using Helm
+        run: |
+          echo "Deploying application with Helm..."
+          helm upgrade --install ${{ env.APP_NAME }} ./k8s/chart \
+            --set image.repository=${{ env.APP_NAME }} \
+            --set image.tag=test \
+            --set image.pullPolicy=Never \
+            --set replicaCount=2 \
+            --set httproute.enabled=false \
+            --wait \
+            --timeout 5m \
+            --debug
+
+          echo "=== Helm Release Status ==="
+          helm status ${{ env.APP_NAME }}
+
+          echo "=== Deployment Status ==="
+          kubectl get deployments
+          kubectl get pods -l app.kubernetes.io/name=learn-go
+          kubectl get services
+
+      - name: Test application endpoints
+        run: |
+          echo "Testing application endpoints..."
+
+          # Port forward to access the service
+          kubectl port-forward service/${{ env.APP_NAME }} 8080:8080 &
+          PF_PID=$!
+          sleep 10
+
+          # Test health endpoint
+          echo "Testing /healthz endpoint..."
+          curl -f http://localhost:8080/healthz || exit 1
+
+          # Test ping endpoint
+          echo "Testing /ping endpoint..."
+          curl -f http://localhost:8080/ping || exit 1
+
+          # Test main endpoint
+          echo "Testing / endpoint..."
+          curl -f http://localhost:8080/ || exit 1
+
+          echo "All endpoints are working correctly!"
+
+          # Kill port-forward
+          kill $PF_PID || true
+
+      - name: Show application logs
+        if: always()
+        run: |
+          echo "=== Application Logs ==="
+          kubectl logs -l app.kubernetes.io/name=learn-go --tail=50
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "Cleaning up resources..."
+          helm uninstall ${{ env.APP_NAME }} --ignore-not-found || true
+
+  deploy-staging:
+    name: Deploy to Staging Environment
+    runs-on: ubuntu-latest
+    needs: test-deployment
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://staging.learn-go.example.com
+
+    steps:
+      - name: Trigger FluxCD reconcile for staging
+        if: success()
+        env:
+          FLUX_RECEIVER_URL: ${{ secrets.FLUX_STAGING_RECEIVER_URL }}
+          FLUX_WEBHOOK_SECRET: ${{ secrets.FLUX_STAGING_WEBHOOK_SECRET }}
+        run: |
+          echo "Triggering FluxCD reconciliation for staging..."
+          curl -X POST \
+            -H "X-GitHub-Event: push" \
+            -H "X-Hub-Signature-256: sha256=$(echo -n '{}' | openssl dgst -sha256 -hmac "$FLUX_WEBHOOK_SECRET" | cut -d' ' -f2)" \
+            -d '{}' \
+            "$FLUX_RECEIVER_URL"
+          echo "FluxCD staging reconciliation triggered successfully!"
+
+  deploy-production:
+    name: Deploy to Production Environment
+    runs-on: ubuntu-latest
+    needs: test-deployment
+    if: startsWith(github.ref, 'refs/tags/')
+    environment:
+      name: production
+      url: https://learn-go.example.com
+
+    steps:
+      - name: Trigger FluxCD reconcile for production
+        if: success()
+        env:
+          FLUX_RECEIVER_URL: ${{ secrets.FLUX_PRODUCTION_RECEIVER_URL }}
+          FLUX_WEBHOOK_SECRET: ${{ secrets.FLUX_PRODUCTION_WEBHOOK_SECRET }}
+        run: |
+          echo "Triggering FluxCD reconciliation for production..."
+          curl -X POST \
+            -H "X-GitHub-Event: push" \
+            -H "X-Hub-Signature-256: sha256=$(echo -n '{}' | openssl dgst -sha256 -hmac "$FLUX_WEBHOOK_SECRET" | cut -d' ' -f2)" \
+            -d '{}' \
+            "$FLUX_RECEIVER_URL"
+          echo "FluxCD production reconciliation triggered successfully!"

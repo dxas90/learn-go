@@ -25,7 +25,7 @@ func main() {
 	// Get host from environment or use default
 	host := os.Getenv("HOST")
 	if host == "" {
-		host = "127.0.0.1"
+		host = "0.0.0.0"
 	}
 
 	// Print startup information
