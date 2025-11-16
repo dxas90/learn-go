@@ -253,11 +253,12 @@ jobs:
       - name: Deploy application using Helm
         run: |
           echo "Deploying application with Helm..."
+
           helm upgrade --install ${{ env.APP_NAME }} ./k8s/chart \
-            --set image.repository=${{ env.APP_NAME }} \
-            --set image.tag=test \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+            --set image.tag=sha-${GITHUB_SHA::7} \
             --set image.pullPolicy=Never \
-            --set replicaCount=2 \
+            --set replicaCount=1 \
             --set autoscaling.enabled=false \
             --set httproute.enabled=false \
             -f .github/sample-env.yaml \
