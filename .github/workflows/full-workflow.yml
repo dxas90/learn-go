@@ -144,6 +144,9 @@ jobs:
       contents: read
       packages: write
       security-events: write
+      actions: read  # Required for CodeQL upload-sarif action
+      checks: write  # Required for publishing test results
+      pull-requests: write  # Required for PR comments
 
     steps:
       - name: Checkout code
@@ -189,49 +192,29 @@ jobs:
             VCS_REF=${{ github.sha }}
             VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
 
-      - name: Export image for Kind testing
+      - name: Extract SHA tag for Trivy
+        if: github.event_name != 'pull_request'
+        id: extract-sha-tag
         run: |
-          # Image is already loaded in Docker daemon, just save it
-          docker save -o /tmp/image.tar $(echo "${{ steps.meta.outputs.tags }}" | head -n1)
-
-      - name: Upload Docker image artifact for Kind testing
-        uses: actions/upload-artifact@v5
-        with:
-          name: docker-image
-          path: /tmp/image.tar
-          retention-days: 1
+          echo "sha-tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "Found SHA tag: ${SHA_TAG}"
 
       - name: Run Trivy vulnerability scanner
         if: github.event_name != 'pull_request'  # only run Trivy when image is pushed (not on PRs)
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          image-ref: ${{ steps.extract-sha-tag.outputs.sha-tag }}
           format: 'sarif'
+          vuln-type: 'library'
           output: 'trivy-results.sarif'
-          # skip version check to avoid failing on newer Trivy versions
-          args: '--skip-version-check'
 
       - name: Upload Trivy scan results to GitHub Security tab
         if: github.event_name != 'pull_request' && steps.trivy.outcome == 'success'
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: 'trivy-results.sarif'
-
-  test-deployment:
-    name: Test Kubernetes Deployment
-    runs-on: ubuntu-latest
-    needs: [build, helm-test]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Download Docker image artifact
-        uses: actions/download-artifact@v6
-        with:
-          name: docker-image
-          path: /tmp
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -247,18 +230,8 @@ jobs:
 
       - name: Load Docker image into Kind
         run: |
-          # Load the image from artifact
-          docker load -i /tmp/image.tar
-
-          # Get the image name and tag from the loaded image
-          IMAGE_NAME=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -n 1)
-          echo "Loaded image: $IMAGE_NAME"
-
-          # Tag it for local use
-          docker tag $IMAGE_NAME ${{ env.APP_NAME }}:test
-
           # Load image into Kind cluster
-          kind load docker-image ${{ env.APP_NAME }}:test --name ${{ env.CLUSTER_NAME }}
+          kind load docker-image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7} --name ${{ env.CLUSTER_NAME }}
 
       - name: Wait for cluster to be ready
         run: |
@@ -287,6 +260,7 @@ jobs:
             --set replicaCount=2 \
             --set autoscaling.enabled=false \
             --set httproute.enabled=false \
+            -f .github/sample-env.yaml \
             --wait \
             --timeout 5m \
             --debug
@@ -356,50 +330,50 @@ jobs:
           echo "Cleaning up resources..."
           helm uninstall ${{ env.APP_NAME }} --ignore-not-found || true
 
+  cleanup-packages:
+    name: Cleanup Old Package Versions
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+    permissions:
+      packages: write
+    steps:
+      - name: Delete old package versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: 'learn-go'
+          package-type: 'container'
+          min-versions-to-keep: 20
+          delete-only-untagged-versions: "true"
+
   deploy-staging:
     name: Deploy to Staging Environment
     runs-on: ubuntu-latest
-    needs: test-deployment
+    needs: build
     if: github.ref == 'refs/heads/main'
     environment:
       name: staging
-      url: https://staging.learn-go.example.com
+      url: http://api-stg-learn-go.example.com/healthz
 
     steps:
       - name: Trigger FluxCD reconcile for staging
         if: success()
-        env:
-          FLUX_RECEIVER_URL: ${{ secrets.FLUX_STAGING_RECEIVER_URL }}
-          FLUX_WEBHOOK_SECRET: ${{ secrets.FLUX_STAGING_WEBHOOK_SECRET }}
         run: |
           echo "Triggering FluxCD reconciliation for staging..."
-          curl -X POST \
-            -H "X-GitHub-Event: push" \
-            -H "X-Hub-Signature-256: sha256=$(echo -n '{}' | openssl dgst -sha256 -hmac "$FLUX_WEBHOOK_SECRET" | cut -d' ' -f2)" \
-            -d '{}' \
-            "$FLUX_RECEIVER_URL"
-          echo "FluxCD staging reconciliation triggered successfully!"
 
   deploy-production:
     name: Deploy to Production Environment
     runs-on: ubuntu-latest
-    needs: test-deployment
+    needs: build
     if: startsWith(github.ref, 'refs/tags/')
+    # Environment protection rules can be configured in GitHub Settings > Environments > production
+    # to require manual approval before deployment
     environment:
       name: production
-      url: https://learn-go.example.com
+      url: http://api-learn-go.example.com/healthz
 
     steps:
       - name: Trigger FluxCD reconcile for production
         if: success()
-        env:
-          FLUX_RECEIVER_URL: ${{ secrets.FLUX_PRODUCTION_RECEIVER_URL }}
-          FLUX_WEBHOOK_SECRET: ${{ secrets.FLUX_PRODUCTION_WEBHOOK_SECRET }}
         run: |
           echo "Triggering FluxCD reconciliation for production..."
-          curl -X POST \
-            -H "X-GitHub-Event: push" \
-            -H "X-Hub-Signature-256: sha256=$(echo -n '{}' | openssl dgst -sha256 -hmac "$FLUX_WEBHOOK_SECRET" | cut -d' ' -f2)" \
-            -d '{}' \
-            "$FLUX_RECEIVER_URL"
-          echo "FluxCD production reconciliation triggered successfully!"
