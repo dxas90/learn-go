@@ -1,27 +1,30 @@
 replicaCount: 1
+
 image:
-  repository: "ghcr.io/dxas90/learn-go"
-  pullPolicy: "Always"
+  repository: "dxas90/learn-go"
+  pullPolicy: "IfNotPresent"
   tag: "latest"
+
 service:
   type: "ClusterIP"
-  port: 8080  # Service listens on 8080
-  annotations:
-    traefik.io/service.nativelb: "true"
+  port: 8080
+  annotations: {}
+
+chart_label: "learn-go"
+
 namespace: "default"
+
 httproute:
-  enabled: false
-  gatewayName: "traefik-gateway"
-  gatewayNamespace: "networking"
-  sectionName: "websecure"
-  annotations:
-    networking.x-k8s.io/route-shard: "futurmille"
-    cert-manager.io/cluster-issuer: "letsencrypt-production"
-    external-dns.alpha.kubernetes.io/target: "enter.example.com"
-  labels:
-    use-cloudflare-solver: "true"
+  enabled: False
+  gatewayName: "gateway"
+  gatewayNamespace: "gateway-system"
+  sectionName: "http"
+  annotations: {}
+    # external-dns.alpha.kubernetes.io/target: "gateway.example.com"
+  labels: {}
+    # use-cloudflare-solver: "true"
   hostnames:
-    - "api-learn-go.example.com"
+    - "example.local"
   rules:
     - matches:
         - path:
@@ -29,62 +32,93 @@ httproute:
             value: /
       backendRefs:
         - port: 8080
+
 persistence:
-  enabled: false
-  capacity: "200Mi"
+  enabled: False
+  capacity: "8Mi"
   mountPath: "/data"
+
 autoscaling:
-  enabled: True
+  enabled: False
   minReplicas: 1
   maxReplicas: 10
+
 resources:
   limits:
+    cpu: 200m
     memory: 512Mi
   requests:
-    cpu: 200m
-    memory: 128Mi
+    cpu: 100m
+    memory: 512Mi
+
 chart:
-  label: "futurmille"
+  label: "learn-go"
+
 # Environment configuration
 env:
   # Environment variables from file will be loaded here during chart generation
   # if env_file_path is provided in cookiecutter.json
-  variables:
-    GO_ENV: "production"
-    HOST: "0.0.0.0"
+  variables: {}
+
 # Common secret and settings references
 common:
   secrets:
-    enabled: false
+    enabled: False
     name: "common-secrets"
   settings:
-    enabled: false
+    enabled: False
     name: "common-settings"
+
 # Other values from the original chart are intentionally left as defaults.
 serviceAccount:
   create: true
   automount: true
   annotations: {}
   name: ""
+
+# Added to the deployment spec template
+imagePullSecrets: []
+
 podSecurityContext:
-  fsGroup: 65534
+  # Aligns with the non-root user created in the Docker image (gid: 1001)
+  fsGroup: 1001
+
 securityContext:
   capabilities:
     drop:
       - ALL
   readOnlyRootFilesystem: false
-  runAsUser: 1000
+  runAsNonRoot: true
+  runAsUser: 1001
+
 livenessProbe:
   httpGet:
     path: /healthz
     port: http
-  initialDelaySeconds: 10
+  initialDelaySeconds: 60
   periodSeconds: 10
   failureThreshold: 3
+  timeoutSeconds: 5
+
 readinessProbe:
   httpGet:
     path: /healthz
     port: http
-  initialDelaySeconds: 5
-  periodSeconds: 5
+  initialDelaySeconds: 60
+  periodSeconds: 10
   failureThreshold: 3
+  timeoutSeconds: 5
+
+volumeMounts:
+  - name: app-cache
+    mountPath: /var/cache/app
+
+volumes:
+  - name: app-cache
+    emptyDir: {}
+
+# Extra environment variables that will be included in the ConfigMap and injected
+# into the container via envFrom. Useful for setting JVM options when root FS is
+# mounted read-only (for example: override go.io.tmpdir to a writable emptyDir)
+extraEnv:
+  PORT: "8080"

@@ -6,6 +6,10 @@ metadata:
   name: {{ include "base.fullname" . }}
   labels:
 {{ include "base.labels" $ | indent 4 }}
+{{- with .Values.httproute.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+{{- end }}
 spec:
   podSelector:
     matchLabels: {}

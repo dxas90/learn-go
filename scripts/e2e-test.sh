@@ -7,8 +7,8 @@ set -euo pipefail
 # Configuration
 APP_NAME="learn-go"
 NAMESPACE="default"
-SERVICE_NAME="learn-go-learn-go-api"  # Helm creates: {release}-{chart}
-DEPLOYMENT_NAME="learn-go-learn-go-api"  # Helm creates: {release}-{chart}
+SERVICE_NAME="learn-go-learn-go"  # Helm creates: {release}-{chart}
+DEPLOYMENT_NAME="learn-go-learn-go"  # Helm creates: {release}-{chart}
 TIMEOUT_SECONDS=300
 RETRY_INTERVAL=5
 
@@ -124,15 +124,15 @@ validate_k8s_resources() {
     # Check pod status
     log_info "Checking pod status..."
     # Helm uses app.kubernetes.io/name={chart} not the full name
-    kubectl get pods -l app.kubernetes.io/name=learn-go-api
+    kubectl get pods -l app.kubernetes.io/name=learn-go
 
     # Verify all pods are running
-    local pod_count=$(kubectl get pods -l app.kubernetes.io/name=learn-go-api --field-selector=status.phase=Running --no-headers | wc -l)
+    local pod_count=$(kubectl get pods -l app.kubernetes.io/name=learn-go --field-selector=status.phase=Running --no-headers | wc -l)
     if [[ ${pod_count} -gt 0 ]]; then
         log_success "All application pods are running (${pod_count})"
     else
         log_error "No running pods found"
-        kubectl describe pods -l app.kubernetes.io/name=learn-go-api
+        kubectl describe pods -l app.kubernetes.io/name=learn-go
         exit 1
     fi
 
@@ -255,13 +255,13 @@ test_health_probes() {
     log_info "Testing health probes..."
 
     # Check if pods are passing readiness checks
-    local ready_pods=$(kubectl get pods -l app.kubernetes.io/name=learn-go-api -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}')
+    local ready_pods=$(kubectl get pods -l app.kubernetes.io/name=learn-go -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}')
 
     if [[ "${ready_pods}" == *"True"* ]]; then
         log_success "Readiness probes are passing"
     else
         log_error "Readiness probes are failing"
-        kubectl describe pods -l app.kubernetes.io/name=learn-go-api
+        kubectl describe pods -l app.kubernetes.io/name=learn-go
         exit 1
     fi
 
@@ -273,7 +273,7 @@ test_resource_constraints() {
     log_info "Validating resource constraints..."
 
     # Check if pods are running within resource limits
-    local pod_name=$(kubectl get pods -l app.kubernetes.io/name=learn-go-api -o jsonpath='{.items[0].metadata.name}')
+    local pod_name=$(kubectl get pods -l app.kubernetes.io/name=learn-go -o jsonpath='{.items[0].metadata.name}')
 
     # Get resource usage (if metrics server is available)
     if kubectl top pod ${pod_name} >/dev/null 2>&1; then
@@ -301,7 +301,7 @@ test_pod_resilience() {
     log_info "Testing pod resilience..."
 
     # Get a pod name
-    local pod_name=$(kubectl get pods -l app.kubernetes.io/name=learn-go-api -o jsonpath='{.items[0].metadata.name}')
+    local pod_name=$(kubectl get pods -l app.kubernetes.io/name=learn-go -o jsonpath='{.items[0].metadata.name}')
     log_info "Testing resilience with pod: ${pod_name}"
 
     # Delete the pod
@@ -310,7 +310,7 @@ test_pod_resilience() {
 
     # Wait for new pod to be ready
     sleep 5
-    kubectl wait --for=condition=Ready pods -l app.kubernetes.io/name=learn-go-api --timeout=120s
+    kubectl wait --for=condition=Ready pods -l app.kubernetes.io/name=learn-go --timeout=120s
 
     log_success "Pod successfully recreated and healthy"
 }
@@ -337,7 +337,7 @@ Service Status:
 $(kubectl get service ${SERVICE_NAME})
 
 Pod Status:
-$(kubectl get pods -l app.kubernetes.io/name=learn-go-api)
+$(kubectl get pods -l app.kubernetes.io/name=learn-go)
 
 ===========================================
 EOF

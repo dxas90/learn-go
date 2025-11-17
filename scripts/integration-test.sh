@@ -6,7 +6,7 @@ set -euo pipefail
 
 # Configuration
 APP_NAME="learn-go"
-SERVICE_NAME="learn-go-learn-go-api"  # Helm creates: {release}-{chart}
+SERVICE_NAME="learn-go-learn-go"  # Helm creates: {release}-{chart}
 NAMESPACE="default"
 LOCAL_PORT=8080
 TIMEOUT_SECONDS=60
