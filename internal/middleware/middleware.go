@@ -17,7 +17,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 			if userAgent == "" {
 				userAgent = "Unknown"
 			}
-			log.Printf("[DEBUG] %s %s %s - User-Agent: %s", timestamp, r.Method, r.URL.Path, userAgent)
+			log.Printf("[INFO] %s %s %s - User-Agent: %s", timestamp, r.Method, r.URL.Path, userAgent)
 		}
 		next.ServeHTTP(w, r)
 	})
