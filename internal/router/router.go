@@ -1,9 +1,12 @@
 package router
 
 import (
+	"net/http"
+
 	"github.com/dxas90/learn-go/internal/handlers"
 	"github.com/dxas90/learn-go/internal/middleware"
 	"github.com/gorilla/mux"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Router wraps the mux router with application-specific configuration
@@ -23,10 +26,15 @@ func NewRouter() (*Router, error) {
 		return nil, err
 	}
 
-	// Apply middleware
+	// Apply middleware (order matters!)
 	r.Use(middleware.LoggingMiddleware)
 	r.Use(middleware.CORSMiddleware)
 	r.Use(middleware.SecurityHeadersMiddleware)
+	r.Use(middleware.MetricsMiddleware)
+	// OpenTelemetry tracing middleware
+	r.Use(func(next http.Handler) http.Handler {
+		return otelhttp.NewHandler(next, "http-server")
+	})
 
 	// Routes
 	r.HandleFunc("/", h.Index).Methods("GET")
@@ -35,6 +43,7 @@ func NewRouter() (*Router, error) {
 	r.HandleFunc("/info", h.Info).Methods("GET")
 	r.HandleFunc("/version", h.Version).Methods("GET")
 	r.HandleFunc("/echo", h.Echo).Methods("POST")
+	r.HandleFunc("/metrics", h.Metrics).Methods("GET")
 
 	return &Router{
 		mux: r,

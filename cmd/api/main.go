@@ -6,9 +6,17 @@ import (
 	"time"
 
 	"github.com/dxas90/learn-go/internal/server"
+	"github.com/dxas90/learn-go/internal/telemetry"
 )
 
 func main() {
+	// Initialize OpenTelemetry tracing
+	shutdown, err := telemetry.InitTracer()
+	if err != nil {
+		log.Fatalf("[ERROR] Failed to initialize tracer: %v", err)
+	}
+	defer shutdown()
+
 	// Create and initialize the server
 	srv, err := server.NewServer()
 	if err != nil {
