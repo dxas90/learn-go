@@ -62,7 +62,11 @@ env:
     TMPDIR: "/tmp"
 
 # Environment configuration as a config map
+# Extra environment variables that will be included in the ConfigMap and injected
+# into the container via envFrom. Useful for setting JVM options when root FS is
+# mounted read-only (for example: override go.io.tmpdir to a writable emptyDir)
 extraEnv:
+  PORT: "8080"
   OTEL_EXPORTER_OTLP_ENDPOINT: "tempo.observability.svc.cluster.local:4317"
 
 # Common secret and settings references
@@ -121,9 +125,3 @@ volumeMounts:
 volumes:
   - name: app-cache
     emptyDir: {}
-
-# Extra environment variables that will be included in the ConfigMap and injected
-# into the container via envFrom. Useful for setting JVM options when root FS is
-# mounted read-only (for example: override go.io.tmpdir to a writable emptyDir)
-extraEnv:
-  PORT: "8080"
