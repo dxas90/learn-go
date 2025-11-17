@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: "dxas90/learn-go"
-  pullPolicy: "IfNotPresent"
+  pullPolicy: "Always"
   tag: "latest"
 
 service:
