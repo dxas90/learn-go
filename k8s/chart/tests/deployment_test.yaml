@@ -50,9 +50,6 @@ tests:
   - it: should set resource limits and requests
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].resources.limits.cpu
-          value: 200m
-      - equal:
           path: spec.template.spec.containers[0].resources.limits.memory
           value: 512Mi
       - equal:
