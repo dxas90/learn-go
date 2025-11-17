@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/gorilla/mux v1.8.1
-	github.com/shirou/gopsutil/v3 v3.24.5
+	github.com/shirou/gopsutil/v4 v4.25.10
 	github.com/shirou/gopsutil/v4 v4.25.10
 )
 
