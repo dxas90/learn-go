@@ -1,15 +1,23 @@
 # syntax=docker/dockerfile:1
 
-# Comments are provided throughout this file to help you get started.
-# If you need more help, visit the Dockerfile reference guide at
-# https://docs.docker.com/engine/reference/builder/
-FROM golang:1.25-alpine AS builder
+# Multi-platform build optimized with cross-compilation
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+
+# Build arguments for cross-compilation
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /build
 COPY . /build/
 ENV GOPROXY=https://proxy.golang.org,direct
+
 RUN go mod tidy && go mod vendor
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/api
+
+# Cross-compile for target platform (fast on any builder platform)
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
+    -a -installsuffix cgo \
+    -ldflags="-w -s" \
+    -o main ./cmd/api
 
 FROM scratch AS production
 ARG CREATED="0000-00-00T00:00:00Z"
