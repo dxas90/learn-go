@@ -137,19 +137,16 @@ jobs:
         run: helm lint k8s/chart
 
   build:
-    name: Build Docker Image (${{ matrix.platform }})
+    name: Build and Scan Docker Image
     runs-on: ubuntu-latest
     needs: [lint, test]
-    strategy:
-      matrix:
-        platform: ['linux/amd64', 'linux/arm64']
     permissions:
       contents: read
       packages: write
       security-events: write
-      actions: read
-      checks: write
-      pull-requests: write
+      actions: read  # Required for CodeQL upload-sarif action
+      checks: write  # Required for publishing test results
+      pull-requests: write  # Required for PR comments
 
     steps:
       - name: Checkout code
@@ -179,58 +176,45 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image for ${{ matrix.platform }}
+      - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' && matrix.platform == 'linux/amd64' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
 
+      - name: Extract SHA tag for Trivy
+        if: github.event_name != 'pull_request'
+        id: extract-sha-tag
+        run: |
+          echo "sha-tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "Found SHA tag: ${SHA_TAG}"
+
       - name: Run Trivy vulnerability scanner
-        if: github.event_name != 'pull_request' && matrix.platform == 'linux/amd64'
+        if: github.event_name != 'pull_request'  # only run Trivy when image is pushed (not on PRs)
         id: trivy
         continue-on-error: true
         uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          image-ref: ${{ steps.extract-sha-tag.outputs.sha-tag }}
           format: 'sarif'
           vuln-type: 'library'
           output: 'trivy-results.sarif'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        if: github.event_name != 'pull_request' && matrix.platform == 'linux/amd64' && steps.trivy.outcome == 'success'
+        if: github.event_name != 'pull_request' && steps.trivy.outcome == 'success'
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: 'trivy-results.sarif'
-
-  test-deployment:
-    name: Test Kubernetes Deployment
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Log in to Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -246,14 +230,9 @@ jobs:
 
       - name: Load Docker image into Kind
         run: |
-          # For PRs: image already loaded locally via build step
-          # For main/tags: pull amd64 variant from GHCR multi-arch manifest
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "Pulling amd64 image from GHCR..."
-            docker pull --platform linux/amd64 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-          fi
-          echo "Loading image into Kind cluster..."
-          kind load docker-image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} --name ${{ env.CLUSTER_NAME }}
+          # Load image into Kind cluster
+          docker pull --platform linux/amd64 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}
+          kind load docker-image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7} --name ${{ env.CLUSTER_NAME }}
 
       - name: Wait for cluster to be ready
         run: |
@@ -278,7 +257,7 @@ jobs:
 
           helm upgrade --install ${{ env.APP_NAME }} ./k8s/chart \
             --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
-            --set image.tag=sha-${{ github.sha }} \
+            --set image.tag=sha-${GITHUB_SHA::7} \
             --set image.pullPolicy=Never \
             --set replicaCount=1 \
             --set autoscaling.enabled=false \
@@ -299,18 +278,23 @@ jobs:
       - name: Run Smoke Test
         run: |
           echo "Running quick smoke test..."
+          # NOTE: smoke-test.sh validates basic cluster health and deployment
+          # Runs AFTER Helm deployment completes successfully
           chmod +x scripts/smoke-test.sh
           ./scripts/smoke-test.sh
 
       - name: Run Comprehensive E2E Tests
         run: |
           echo "Starting comprehensive end-to-end testing..."
+          # NOTE: e2e-test.sh performs full endpoint testing, pod resilience checks
+          # Requires Kind cluster with deployed application
           chmod +x scripts/e2e-test.sh
           ./scripts/e2e-test.sh
 
       - name: Verify Deployment Health
         run: |
           echo "=== Final Deployment Health Check ==="
+          # Check for any unhealthy pods
           UNHEALTHY_PODS=$(kubectl get pods --field-selector=status.phase!=Running --no-headers | wc -l)
           if [ "$UNHEALTHY_PODS" -gt 0 ]; then
             echo "Found unhealthy pods:"
@@ -351,7 +335,7 @@ jobs:
   cleanup-packages:
     name: Cleanup Old Package Versions
     runs-on: ubuntu-latest
-    needs: test-deployment
+    needs: build
     if: github.event_name != 'pull_request'
     permissions:
       packages: write
@@ -367,7 +351,7 @@ jobs:
   deploy-staging:
     name: Deploy to Staging Environment
     runs-on: ubuntu-latest
-    needs: test-deployment
+    needs: build
     if: github.ref == 'refs/heads/main'
     environment:
       name: staging
@@ -382,7 +366,7 @@ jobs:
   deploy-production:
     name: Deploy to Production Environment
     runs-on: ubuntu-latest
-    needs: test-deployment
+    needs: build
     if: startsWith(github.ref, 'refs/tags/')
     # Environment protection rules can be configured in GitHub Settings > Environments > production
     # to require manual approval before deployment
