@@ -16,7 +16,7 @@ paths:
       responses:
         "200":
           description: Welcome message with API endpoints
-          
+
   /ping:
     get:
       summary: Health check ping endpoint
@@ -28,7 +28,7 @@ paths:
             text/plain:
               schema:
                 type: string
-                
+
   /healthz:
     get:
       summary: Detailed health check
@@ -36,7 +36,7 @@ paths:
       responses:
         "200":
           description: Health status with system metrics
-          
+
   /info:
     get:
       summary: Application and system information
@@ -44,7 +44,7 @@ paths:
       responses:
         "200":
           description: Detailed system and application info
-          
+
   /version:
     get:
       summary: Application version
@@ -52,7 +52,7 @@ paths:
       responses:
         "200":
           description: Application version information
-          
+
   /echo:
     post:
       summary: Echo request body
@@ -68,3 +68,4 @@ paths:
           description: Echoed request data with headers
         "400":
           description: Invalid JSON
+

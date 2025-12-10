@@ -20,3 +20,4 @@ logging:
   format: json
 
 environment: development
+

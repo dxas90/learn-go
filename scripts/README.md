@@ -242,3 +242,4 @@ Testing patterns and scripts adapted from:
 - Repository: [dxas90/learn](https://github.com/dxas90/learn)
 - Branch: `develop`
 - Scripts: `smoke-test.sh`, `e2e-test.sh`, `integration-test.sh`
+

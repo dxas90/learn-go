@@ -106,3 +106,4 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 		handlers.HTTPRequestsTotal.WithLabelValues(r.Method, path, strconv.Itoa(rw.statusCode)).Inc()
 	})
 }
+
