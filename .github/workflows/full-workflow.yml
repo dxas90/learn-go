@@ -27,6 +27,8 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+        env:
+          GOTOOLCHAIN: auto
 
       - name: Install linters
         run: |
@@ -58,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.25.x']
+        go-version: ['1.25.5']
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -68,6 +70,8 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
           cache: true
+        env:
+          GOTOOLCHAIN: auto
 
       - name: Download dependencies
         run: go mod download
@@ -101,6 +105,8 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+        env:
+          GOTOOLCHAIN: auto
 
       - name: Download dependencies
         run: go mod download
