@@ -38,4 +38,3 @@ func init() {
 func (h *Handlers) Metrics(w http.ResponseWriter, r *http.Request) {
 	promhttp.Handler().ServeHTTP(w, r)
 }
-

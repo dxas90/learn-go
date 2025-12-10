@@ -37,4 +37,3 @@ func TestNewRouter(t *testing.T) {
 		}
 	}
 }
-

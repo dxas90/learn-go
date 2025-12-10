@@ -45,4 +45,3 @@ func (s *Server) Start(addr string) error {
 	}
 	return err
 }
-

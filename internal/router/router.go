@@ -54,4 +54,3 @@ func NewRouter() (*Router, error) {
 func (r *Router) Mux() *mux.Router {
 	return r.mux
 }
-

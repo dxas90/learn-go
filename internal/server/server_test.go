@@ -42,4 +42,3 @@ func TestServerStart(t *testing.T) {
 		t.Errorf("Expected status OK, got %v", resp.Status)
 	}
 }
-

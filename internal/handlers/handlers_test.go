@@ -250,4 +250,3 @@ func TestInfoEndpoint(t *testing.T) {
 		t.Errorf("Expected system field")
 	}
 }
-
