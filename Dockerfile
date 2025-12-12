@@ -22,8 +22,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
 FROM alpine:3.20 AS production
 ARG CREATED="0000-00-00T00:00:00Z"
 
-# Install ca-certificates for HTTPS and wget for health checks
-RUN apk --no-cache add ca-certificates wget
+# Install ca-certificates for HTTPS and curl for health checks
+RUN apk --no-cache add ca-certificates curl
 
 LABEL org.opencontainers.image.authors="Daniel Ramirez <dxas90@gmail.com>" \
     org.opencontainers.image.created=${CREATED} \
@@ -46,9 +46,9 @@ RUN chown -R appuser:appuser /app
 # Switch to non-root user
 USER appuser
 
-# Health check using wget
+# Health check using curl
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/healthz || exit 1
+  CMD curl http://127.0.0.1:8080/healthz || exit 1
 
 EXPOSE 8080
 ENTRYPOINT [ "/app/main" ]
