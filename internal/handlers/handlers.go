@@ -12,6 +12,7 @@ import (
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/process"
+	"gopkg.in/yaml.v3"
 )
 
 // Handlers contains all HTTP request handlers for the application
@@ -69,6 +70,7 @@ func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
 				{Path: "/info", Method: "GET", Description: "Application and system information"},
 				{Path: "/version", Method: "GET", Description: "Application version information"},
 				{Path: "/echo", Method: "POST", Description: "Echo back the request body"},
+				{Path: "/openapi.json", Method: "GET", Description: "OpenAPI specification"},
 			},
 		},
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -219,4 +221,35 @@ func (h *Handlers) Echo(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// OpenAPISpec handles the /openapi.json endpoint
+// Reads the OpenAPI YAML spec and converts it to JSON
+func (h *Handlers) OpenAPISpec(w http.ResponseWriter, r *http.Request) {
+	// Read the openapi.yaml file
+	openapiPath := "api/openapi.yaml"
+	data, err := os.ReadFile(openapiPath)
+	if err != nil {
+		log.Printf("Error reading OpenAPI spec: %v", err)
+		http.Error(w, "OpenAPI spec not found", http.StatusNotFound)
+		return
+	}
+
+	// Convert YAML to JSON
+	var yamlData interface{}
+	if err := yaml.Unmarshal(data, &yamlData); err != nil {
+		log.Printf("Error parsing OpenAPI spec: %v", err)
+		http.Error(w, "Failed to parse OpenAPI spec", http.StatusInternalServerError)
+		return
+	}
+
+	jsonData, err := json.Marshal(yamlData)
+	if err != nil {
+		log.Printf("Error converting OpenAPI spec to JSON: %v", err)
+		http.Error(w, "Failed to convert OpenAPI spec to JSON", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonData)
 }
