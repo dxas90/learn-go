@@ -45,6 +45,7 @@ func NewRouter() (*Router, error) {
 	r.HandleFunc("/echo", h.Echo).Methods("POST")
 	r.HandleFunc("/metrics", h.Metrics).Methods("GET")
 	r.HandleFunc("/openapi.json", h.OpenAPISpec).Methods("GET")
+	r.HandleFunc("/openapi.yaml", h.OpenAPISpecYAML).Methods("GET")
 
 	return &Router{
 		mux: r,

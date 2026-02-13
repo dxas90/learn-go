@@ -19,6 +19,8 @@ run: ## Run the application
 
 # Building
 build: ## Build the application
+	@mkdir -p internal/apispec
+	@cp api/openapi.yaml internal/apispec/openapi.yaml
 	go build -o bin/learn-go ./cmd/api
 
 # Testing

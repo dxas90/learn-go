@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/dxas90/learn-go/internal/apispec"
 	"github.com/dxas90/learn-go/pkg/models"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -70,7 +71,9 @@ func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
 				{Path: "/info", Method: "GET", Description: "Application and system information"},
 				{Path: "/version", Method: "GET", Description: "Application version information"},
 				{Path: "/echo", Method: "POST", Description: "Echo back the request body"},
-				{Path: "/openapi.json", Method: "GET", Description: "OpenAPI specification"},
+				{Path: "/openapi.json", Method: "GET", Description: "OpenAPI specification (JSON)"},
+				{Path: "/openapi.yaml", Method: "GET", Description: "OpenAPI specification (YAML)"},
+				{Path: "/metrics", Method: "GET", Description: "Prometheus metrics"},
 			},
 		},
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -224,20 +227,11 @@ func (h *Handlers) Echo(w http.ResponseWriter, r *http.Request) {
 }
 
 // OpenAPISpec handles the /openapi.json endpoint
-// Reads the OpenAPI YAML spec and converts it to JSON
+// Returns the embedded OpenAPI YAML spec converted to JSON
 func (h *Handlers) OpenAPISpec(w http.ResponseWriter, r *http.Request) {
-	// Read the openapi.yaml file
-	openapiPath := "api/openapi.yaml"
-	data, err := os.ReadFile(openapiPath)
-	if err != nil {
-		log.Printf("Error reading OpenAPI spec: %v", err)
-		http.Error(w, "OpenAPI spec not found", http.StatusNotFound)
-		return
-	}
-
-	// Convert YAML to JSON
+	// Convert embedded YAML to JSON
 	var yamlData interface{}
-	if err := yaml.Unmarshal(data, &yamlData); err != nil {
+	if err := yaml.Unmarshal(apispec.OpenAPISpec, &yamlData); err != nil {
 		log.Printf("Error parsing OpenAPI spec: %v", err)
 		http.Error(w, "Failed to parse OpenAPI spec", http.StatusInternalServerError)
 		return
@@ -252,4 +246,11 @@ func (h *Handlers) OpenAPISpec(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonData)
+}
+
+// OpenAPISpecYAML handles the /openapi.yaml endpoint
+// Returns the embedded OpenAPI spec in YAML format
+func (h *Handlers) OpenAPISpecYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/x-yaml")
+	w.Write(apispec.OpenAPISpec)
 }

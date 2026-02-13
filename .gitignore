@@ -24,6 +24,9 @@ dist/
 build/
 bin/
 
+# # Copied OpenAPI spec (embedded at build time)
+# internal/apispec/openapi.yaml
+
 # IDE specific files
 .vscode/
 .idea/

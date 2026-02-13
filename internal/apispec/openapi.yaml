@@ -1,0 +1,71 @@
+openapi: 3.0.0
+info:
+  title: Learn-Go API
+  version: 0.0.1
+  description: A simple microservice API for learning Kubernetes and Docker
+
+servers:
+  - url: http://localhost:8080
+    description: Local server
+
+paths:
+  /:
+    get:
+      summary: Welcome and API documentation
+      operationId: getWelcome
+      responses:
+        "200":
+          description: Welcome message with API endpoints
+
+  /ping:
+    get:
+      summary: Health check ping endpoint
+      operationId: getPing
+      responses:
+        "200":
+          description: Pong response
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /healthz:
+    get:
+      summary: Detailed health check
+      operationId: getHealthz
+      responses:
+        "200":
+          description: Health status with system metrics
+
+  /info:
+    get:
+      summary: Application and system information
+      operationId: getInfo
+      responses:
+        "200":
+          description: Detailed system and application info
+
+  /version:
+    get:
+      summary: Application version
+      operationId: getVersion
+      responses:
+        "200":
+          description: Application version information
+
+  /echo:
+    post:
+      summary: Echo request body
+      operationId: postEcho
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Echoed request data with headers
+        "400":
+          description: Invalid JSON
+

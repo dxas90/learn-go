@@ -13,6 +13,9 @@ ENV GOPROXY=https://proxy.golang.org,direct
 
 RUN go mod tidy && go mod vendor
 
+# Copy OpenAPI spec for embedding
+RUN mkdir -p internal/apispec && cp api/openapi.yaml internal/apispec/openapi.yaml
+
 # Cross-compile for target platform (fast on any builder platform)
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
     -a -installsuffix cgo \
