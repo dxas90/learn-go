@@ -1,7 +1,6 @@
 package apispec
 
-// _ imports embed package for the go:embed directive.
-import _ "embed"
+import _ "embed" // Required for go:embed directive below
 
 // OpenAPISpec contains the embedded OpenAPI specification file in YAML format.
 //
