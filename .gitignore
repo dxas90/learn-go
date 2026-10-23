@@ -80,7 +80,6 @@ gosec-report.json
 
 # Docker
 .dockerignore
-
 # GitLab CI artifacts
 .gitlab-ci-local/
 
