@@ -80,7 +80,9 @@ func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("error encoding response: %v", err)
+	}
 }
 
 // Ping handles the /ping endpoint
@@ -88,7 +90,9 @@ func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) Ping(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("pong"))
+	if _, err := w.Write([]byte("pong")); err != nil {
+		log.Printf("error writing response: %v", err)
+	}
 }
 
 // Healthz handles the /healthz endpoint
@@ -120,7 +124,9 @@ func (h *Handlers) Healthz(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("error encoding response: %v", err)
+	}
 }
 
 // Info handles the /info endpoint
@@ -167,7 +173,9 @@ func (h *Handlers) Info(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("error encoding response: %v", err)
+	}
 }
 
 // Version handles the /version endpoint
@@ -184,7 +192,9 @@ func (h *Handlers) Version(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("error encoding response: %v", err)
+	}
 }
 
 // Echo handles the /echo endpoint
@@ -223,7 +233,9 @@ func (h *Handlers) Echo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("error encoding response: %v", err)
+	}
 }
 
 // OpenAPISpec handles the /openapi.json endpoint
@@ -245,12 +257,16 @@ func (h *Handlers) OpenAPISpec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(jsonData)
+	if _, err := w.Write(jsonData); err != nil {
+		log.Printf("error writing response: %v", err)
+	}
 }
 
 // OpenAPISpecYAML handles the /openapi.yaml endpoint
 // Returns the embedded OpenAPI spec in YAML format
 func (h *Handlers) OpenAPISpecYAML(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-yaml")
-	w.Write(apispec.OpenAPISpec)
+	if _, err := w.Write(apispec.OpenAPISpec); err != nil {
+		log.Printf("error writing response: %v", err)
+	}
 }

@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 )
 
 func TestPing(t *testing.T) {
-	os.Setenv("GO_ENV", "test")
+	t.Setenv("GO_ENV", "test")
 	h, err := NewHandlers()
 	if err != nil {
 		t.Fatalf("Failed to create handlers: %v", err)
@@ -36,7 +35,7 @@ func TestPing(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
-	os.Setenv("GO_ENV", "test")
+	t.Setenv("GO_ENV", "test")
 	h, err := NewHandlers()
 	if err != nil {
 		t.Fatalf("Failed to create handlers: %v", err)
@@ -71,7 +70,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	os.Setenv("GO_ENV", "test")
+	t.Setenv("GO_ENV", "test")
 	h, err := NewHandlers()
 	if err != nil {
 		t.Fatalf("Failed to create handlers: %v", err)
@@ -102,7 +101,7 @@ func TestVersion(t *testing.T) {
 }
 
 func TestEcho(t *testing.T) {
-	os.Setenv("GO_ENV", "test")
+	t.Setenv("GO_ENV", "test")
 	h, err := NewHandlers()
 	if err != nil {
 		t.Fatalf("Failed to create handlers: %v", err)
@@ -151,7 +150,7 @@ func TestEcho(t *testing.T) {
 }
 
 func TestEchoInvalidJSON(t *testing.T) {
-	os.Setenv("GO_ENV", "test")
+	t.Setenv("GO_ENV", "test")
 	h, err := NewHandlers()
 	if err != nil {
 		t.Fatalf("Failed to create handlers: %v", err)
@@ -182,7 +181,7 @@ func TestEchoInvalidJSON(t *testing.T) {
 }
 
 func TestIndexEndpoint(t *testing.T) {
-	os.Setenv("GO_ENV", "test")
+	t.Setenv("GO_ENV", "test")
 	h, err := NewHandlers()
 	if err != nil {
 		t.Fatalf("Failed to create handlers: %v", err)
@@ -217,7 +216,7 @@ func TestIndexEndpoint(t *testing.T) {
 }
 
 func TestInfoEndpoint(t *testing.T) {
-	os.Setenv("GO_ENV", "test")
+	t.Setenv("GO_ENV", "test")
 	h, err := NewHandlers()
 	if err != nil {
 		t.Fatalf("Failed to create handlers: %v", err)
