@@ -44,7 +44,7 @@ before_script:
 # Code quality and linting
 lint:
   stage: lint
-  image: golang:1.25-alpine
+  image: golang:1.27-alpine
   before_script:
     - apk add --no-cache git make
     - go install golang.org/x/lint/golint@latest
@@ -63,7 +63,7 @@ lint:
 # Unit and integration tests
 test:
   stage: test
-  image: golang:1.25-alpine
+  image: golang:1.27-alpine
   before_script:
     - apk add --no-cache git make gcc musl-dev
     - go mod download
